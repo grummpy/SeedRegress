@@ -1,0 +1,5 @@
+-r requirements.txt
+# Optional. Off unless a suite sets "enable_lpips": true.
+# Torch is large and platform-specific; this does not use the ComfyUI GPU.
+lpips==0.1.4
+torch>=2.2

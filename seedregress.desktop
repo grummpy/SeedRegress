@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SeedRegress
+GenericName=ComfyUI visual regression
+Comment=Compare ComfyUI renders against saved baselines
+Exec=bash -c 'cd "$(dirname "$1")" && exec ./launch.sh' seedregress %k
+Terminal=true
+Icon=assets/icon.png
+Categories=Graphics;Development;
+StartupNotify=true

@@ -1,0 +1,68 @@
+{
+  "name": "Still landscapes and objects",
+  "workflow": "workflows/txt2img_api.json",
+  "seconds_per_step": 0.4,
+  "enable_lpips": false,
+  "bindings": {
+    "positive": "6",
+    "negative": "7",
+    "sampler": "3",
+    "latent": "5",
+    "checkpoint": "4",
+    "lora": "10"
+  },
+  "thresholds": {
+    "phash_pass_max": 6,
+    "phash_fail_min": 16,
+    "ssim_pass_min": 0.98,
+    "ssim_fail_max": 0.90
+  },
+  "cases": [
+    {
+      "id": "ridge-dusk",
+      "positive": "a wide mountain valley at dusk, layered ridges, violet clouds, distant pine silhouettes, no people",
+      "negative": "people, faces, text, watermark, logo, blurry",
+      "seed": 12041,
+      "steps": 20,
+      "sampler": "euler",
+      "scheduler": "normal",
+      "cfg": 7.0,
+      "width": 512,
+      "height": 512,
+      "ckpt_name": "v1-5-pruned-emaonly.safetensors",
+      "loras": [
+        { "name": "landscape_detail.safetensors", "strength_model": 0.55, "strength_clip": 0.55 }
+      ]
+    },
+    {
+      "id": "ceramic-bowl",
+      "positive": "a handmade ceramic bowl on a wooden table, soft window light, linen cloth, no people",
+      "negative": "people, faces, text, watermark, logo, blurry",
+      "seed": 88002,
+      "steps": 24,
+      "sampler": "dpmpp_2m",
+      "scheduler": "karras",
+      "cfg": 6.5,
+      "width": 768,
+      "height": 512,
+      "ckpt_name": "v1-5-pruned-emaonly.safetensors",
+      "loras": []
+    },
+    {
+      "id": "studio-solids",
+      "positive": "three matte geometric solids, a cube, a sphere, and a cone, on a neutral gray studio floor, soft shadow, no text",
+      "negative": "people, faces, text, watermark, logo, blurry",
+      "seed": 33910,
+      "steps": 16,
+      "sampler": "euler_ancestral",
+      "scheduler": "normal",
+      "cfg": 7.0,
+      "width": 512,
+      "height": 512,
+      "ckpt_name": "v1-5-pruned-emaonly.safetensors",
+      "loras": [
+        { "name": "shape_clean.safetensors", "strength_model": 0.4, "strength_clip": 0.4 }
+      ]
+    }
+  ]
+}
