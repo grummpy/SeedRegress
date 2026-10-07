@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -78,6 +79,7 @@ class CaseOutcome:
     fingerprint: dict | None = None
     changes: list[str] = field(default_factory=list)
     baseline_updated: bool = False
+    submission_unresolved: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +98,7 @@ class CaseOutcome:
             "fingerprint": self.fingerprint,
             "changes": self.changes,
             "baseline_updated": self.baseline_updated,
+            "submission_unresolved": self.submission_unresolved,
         }
 
 
@@ -180,7 +183,22 @@ def _slug(name: str) -> str:
     return cleaned or "suite"
 
 
+def suite_identity(suite: Suite) -> str:
+    """Return the stable on-disk namespace for one suite file.
+
+    A display name is not unique: two suite files may use the same name. The
+    source path is stable for an installed suite and keeps their stores apart.
+    """
+    source = str(suite.source_path.resolve()).encode("utf-8")
+    return f"{_slug(suite.name)}--{hashlib.sha256(source).hexdigest()[:12]}"
+
+
 def baseline_dir(data_dir: Path, suite: Suite, case_id: str) -> Path:
+    return data_dir / "baselines" / suite_identity(suite) / case_id
+
+
+def legacy_baseline_dir(data_dir: Path, suite: Suite, case_id: str) -> Path:
+    """Locate the pre-identity baseline path without ever writing to it."""
     return data_dir / "baselines" / _slug(suite.name) / case_id
 
 
@@ -200,6 +218,18 @@ def plan_suite(
             warnings.append(note)
     if not host:
         warnings.append("No ComfyUI host is set. A confirmed run will stop before contacting anything.")
+    legacy_cases = [
+        case.id for case in suite.cases
+        if (legacy_baseline_dir(data_dir, suite, case.id) / "baseline.png").is_file()
+        and not (baseline_dir(data_dir, suite, case.id) / "baseline.png").is_file()
+    ]
+    if legacy_cases:
+        warnings.append(
+            "Legacy baselines were left untouched because their name-only namespace can belong "
+            "to another suite. New isolated baselines will be created for: "
+            + ", ".join(legacy_cases)
+            + "."
+        )
     for case in suite.cases:
         exists = (baseline_dir(data_dir, suite, case.id) / "baseline.png").is_file()
         jobs.append(
@@ -324,8 +354,7 @@ def execute(
     run_dir.mkdir(parents=True, exist_ok=True)
     results: list[CaseOutcome] = []
     for case in suite.cases:
-        results.append(
-            _render_case(
+        rendered = _render_case(
                 client,
                 suite,
                 case,
@@ -338,7 +367,22 @@ def execute(
                 case_timeout=case_timeout,
                 update_baseline=update_baseline,
             )
-        )
+        results.append(rendered)
+        if rendered.submission_unresolved:
+            results.extend(
+                CaseOutcome(
+                    case_id=next_case.id,
+                    verdict="error",
+                    reasons=["Not submitted: a previous submitted render could not be resolved."],
+                    error="Not submitted after unresolved prior render.",
+                )
+                for next_case in suite.cases[len(results):]
+            )
+            outcome.warnings.append(
+                "Stopped submitting new renders after an unresolved submitted job. "
+                "No queue cancellation was attempted."
+            )
+            break
     outcome.prompts_submitted = _count_submitted(run_dir)
     outcome.cases = results
     report = write_report(run_dir, suite.name, results, host=host, comfyui_version=version)
@@ -380,6 +424,8 @@ def _render_case(
     (case_dir / "case.json").write_text(
         json.dumps(case_payload(case), indent=2) + "\n", encoding="utf-8"
     )
+    prompt_id: str | None = None
+    waiting_for_completion = False
     try:
         graph = apply_case(suite.workflow, case, suite.bindings)
         (case_dir / "workflow.json").write_text(json.dumps(graph, indent=2) + "\n", encoding="utf-8")
@@ -389,14 +435,26 @@ def _render_case(
             prompt_id,
             {"run_id": run_id, "case_id": case.id, "host": client.base},
         )
+        waiting_for_completion = True
         image_info = client.wait_for_image(prompt_id, case_timeout)
+        waiting_for_completion = False
         raw = client.view(image_info["filename"], image_info["subfolder"], image_info["type"])
         current = Image.open(BytesIO(raw)).convert("RGB")
         after_path = case_dir / "after.png"
         current.save(after_path)
         ownership.forget([prompt_id])
     except (ComfyError, SeedRegressError, OSError, ValueError) as exc:
-        return CaseOutcome(case_id=case.id, verdict="error", error=str(exc), reasons=[str(exc)])
+        unresolved = prompt_id is not None and waiting_for_completion
+        reason = str(exc)
+        if unresolved:
+            reason += " The submitted job may still be queued or running; no cancellation was attempted."
+        return CaseOutcome(
+            case_id=case.id,
+            verdict="error",
+            error=reason,
+            reasons=[reason],
+            submission_unresolved=unresolved,
+        )
 
     fingerprint = build_fingerprint(
         case=case, workflow=graph, system_stats=stats, models_root=models_root
@@ -406,6 +464,19 @@ def _render_case(
     )
     base = baseline_dir(data_dir, suite, case.id)
     base.mkdir(parents=True, exist_ok=True)
+    metadata_path = base / "suite-identity.json"
+    if not metadata_path.is_file():
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "identity": suite_identity(suite),
+                    "name": suite.name,
+                    "source_path": str(suite.source_path.resolve()),
+                },
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
     baseline_png = base / "baseline.png"
     baseline_fp_path = base / "fingerprint.json"
     if not baseline_png.is_file():

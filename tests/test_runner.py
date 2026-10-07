@@ -9,8 +9,8 @@ import pytest
 
 from seedregress.comfy import ComfyClient, normalize_base, read_frame, send_frame
 from seedregress.config import load_config
-from seedregress.errors import GpuConfirmationRequired
-from seedregress.runner import cancel_mine, execute, exit_code, plan_suite
+from seedregress.errors import ComfyError, GpuConfirmationRequired
+from seedregress.runner import baseline_dir, cancel_mine, execute, exit_code, plan_suite
 from seedregress.suite import LoraSpec, load_suite
 from seedregress.workflow import apply_case
 from tests.mock_comfy import MockComfy
@@ -168,7 +168,7 @@ def test_mock_roundtrip_baseline_then_pass_and_hashes(suite, tmp_path):
         ridge = next(body for body in posted if body["extra_data"]["seedregress_case"] == "ridge-dusk")
         assert ridge["prompt"]["10"]["inputs"]["lora_name"] == "landscape_detail.safetensors"
         fingerprint = json.loads(
-            (tmp_path / "baselines" / "still-landscapes-and-objects" / "ridge-dusk" / "fingerprint.json").read_text()
+            (baseline_dir(tmp_path, suite, "ridge-dusk") / "fingerprint.json").read_text()
         )
         assert fingerprint["comfyui_version"] == "0.3.43"
         assert fingerprint["checkpoint"]["sha256"]
@@ -239,6 +239,58 @@ def test_plan_describes_baseline_versus_compare(suite, tmp_path):
     outcome = plan_suite(suite, data_dir=tmp_path, host="", seconds_per_step=0.4)
     assert all(job.action == "save baseline" for job in outcome.jobs)
     assert "about" in outcome.to_dict()["estimated_label"]
+
+
+def test_unresolved_submission_stops_later_prompts_and_a_retry_can_continue(monkeypatch, suite, tmp_path):
+    mock = MockComfy()
+    host = mock.start()
+    original_wait = ComfyClient.wait_for_image
+    calls = 0
+
+    def fail_once(self, prompt_id, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ComfyError("timed out waiting for mock completion")
+        return original_wait(self, prompt_id, timeout)
+
+    monkeypatch.setattr(ComfyClient, "wait_for_image", fail_once)
+    try:
+        failed = execute(
+            suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5
+        )
+        assert failed.prompts_submitted == 1
+        assert [item.case_id for item in failed.cases] == [case.id for case in suite.cases]
+        assert failed.cases[0].submission_unresolved is True
+        assert all(item.verdict == "error" for item in failed.cases)
+        assert len(mock.prompt_posts()) == 1
+        assert mock.state.interrupted == 0
+
+        retried = execute(
+            suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5
+        )
+        assert retried.prompts_submitted == len(suite.cases)
+        assert {item.verdict for item in retried.cases} == {"baseline"}
+    finally:
+        mock.stop()
+
+
+def test_same_name_suites_do_not_share_baselines_and_legacy_is_not_adopted(suite, tmp_path):
+    from copy import copy
+
+    other_path = tmp_path / "other" / "same-name.suite.json"
+    other_path.parent.mkdir()
+    other_path.write_text("{}", encoding="utf-8")
+    other = copy(suite)
+    other.source_path = other_path
+    assert baseline_dir(tmp_path, suite, "ridge-dusk") != baseline_dir(tmp_path, other, "ridge-dusk")
+
+    legacy = tmp_path / "baselines" / "still-landscapes-and-objects" / "ridge-dusk"
+    legacy.mkdir(parents=True)
+    (legacy / "baseline.png").write_bytes(b"legacy")
+    plan = plan_suite(suite, data_dir=tmp_path, host="", seconds_per_step=0.4)
+    assert next(job for job in plan.jobs if job.case_id == "ridge-dusk").action == "save baseline"
+    assert any("Legacy baselines were left untouched" in warning for warning in plan.warnings)
 
 
 def test_normalize_host_adds_scheme_and_rejects_empty():
