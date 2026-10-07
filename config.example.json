@@ -1,0 +1,7 @@
+{
+  "comfy_host": "",
+  "models_root": "",
+  "seconds_per_step": 0.4,
+  "case_timeout_seconds": 900,
+  "poll_interval_seconds": 0.5
+}

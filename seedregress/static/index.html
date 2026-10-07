@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SeedRegress</title>
+  <link rel="icon" href="/assets/icon.png">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <svg class="constellation" aria-hidden="true" viewBox="0 0 1200 800">
+    <g fill="none" stroke="#7c5cff" stroke-width="1">
+      <path d="M40 80 L120 40 L180 110 L90 150 Z" opacity="0.35"/>
+      <path d="M1040 60 L1120 120 L1080 190 L980 140 Z" opacity="0.28"/>
+      <path d="M80 640 L160 700 L60 740" opacity="0.25"/>
+    </g>
+    <g fill="#c4b5fd">
+      <circle cx="40" cy="80" r="2.5"/><circle cx="120" cy="40" r="2"/>
+      <circle cx="180" cy="110" r="2"/><circle cx="90" cy="150" r="2.2"/>
+      <circle cx="1040" cy="60" r="2"/><circle cx="1120" cy="120" r="2.4"/>
+      <circle cx="1080" cy="190" r="2"/><circle cx="980" cy="140" r="2"/>
+    </g>
+  </svg>
+  <div class="wrap">
+    <header>
+      <img src="/assets/icon.png" alt="SeedRegress icon">
+      <div>
+        <h1>SeedRegress</h1>
+        <p class="lede">Compare ComfyUI renders of the same seeds after a LoRA or model change. The page opens on a dry-run. Nothing is queued until you press Run on GPU.</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>ComfyUI machine</h2>
+      <div class="grid">
+        <label>Host
+          <input id="host" type="text" autocomplete="off" spellcheck="false" placeholder="example: 192.168.4.47:8188">
+        </label>
+        <label>Models folder for file hashes (optional)
+          <input id="models" type="text" autocomplete="off" spellcheck="false" placeholder="Leave empty to record names and the ComfyUI version only">
+        </label>
+      </div>
+      <p class="hint" id="save-state">Host is saved on this computer only.</p>
+    </section>
+
+    <section class="card">
+      <h2>Suite</h2>
+      <div class="grid">
+        <label>Example
+          <select id="examples"></select>
+        </label>
+        <label>Suite path
+          <input id="suite" type="text" spellcheck="false">
+        </label>
+      </div>
+      <div class="actions" style="margin-top: 12px">
+        <button class="ghost" id="plan" type="button">Dry-run plan</button>
+      </div>
+      <div id="plan-view"></div>
+    </section>
+
+    <section class="card">
+      <h2>Run on GPU</h2>
+      <p class="meta">This queues one render per case on the host above. SeedRegress has no scheduler and will not run while you are away. It checks /queue and /system_stats first and refuses a busy queue.</p>
+      <label class="check">
+        <input id="confirm" type="checkbox">
+        <span>I confirm this run may use the GPU.</span>
+      </label>
+      <label class="check">
+        <input id="update" type="checkbox">
+        <span>After comparing, replace the saved baselines with these renders.</span>
+      </label>
+      <div class="actions">
+        <button class="danger" id="run" type="button" disabled>Run on GPU</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Cancel all my jobs</h2>
+      <p class="meta">Stops the running job only when it belongs to this SeedRegress install, then deletes pending jobs this install submitted. Other programs stay in the queue.</p>
+      <button class="cancel" id="cancel" type="button">Cancel all my jobs</button>
+      <div id="cancel-view"></div>
+    </section>
+
+    <section class="card" id="results-card" hidden>
+      <h2>Results</h2>
+      <div id="results"></div>
+    </section>
+
+    <footer>
+      Local only, on 127.0.0.1. No account, no telemetry, no scheduled auto-run.
+      Reports stay in the data folder on this computer.
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

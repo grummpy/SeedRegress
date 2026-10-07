@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"
+ role="img" aria-label="SeedRegress">
+  <rect x="40" y="40" width="944" height="944" rx="200"
+ fill="#080612" stroke="#9658dc" stroke-width="22"/>
+  <polygon points="512,250 790,390 512,530 234,390"
+ fill="#bc30bc" stroke="#bafaff" stroke-width="14" stroke-linejoin="round"/>
+  <polygon points="234,390 512,530 512,810 234,670"
+ fill="#3e227a" stroke="#bafaff" stroke-width="14" stroke-linejoin="round"/>
+  <polygon points="790,390 790,670 512,810 512,530"
+ fill="#24c6d0" stroke="#bafaff" stroke-width="14" stroke-linejoin="round"/>
+  <g fill="#bafaff">
+    <circle cx="400" cy="360" r="22"/>
+    <circle cx="624" cy="360" r="22"/>
+    <circle cx="512" cy="410" r="22"/>
+    <circle cx="400" cy="470" r="22"/>
+    <circle cx="624" cy="470" r="22"/>
+    <circle cx="330" cy="500" r="20"/>
+    <circle cx="400" cy="590" r="20"/>
+    <circle cx="470" cy="680" r="20"/>
+  </g>
+  <g fill="#121840">
+    <circle cx="650" cy="560" r="20"/>
+    <circle cx="730" cy="680" r="20"/>
+  </g>
+</svg>
