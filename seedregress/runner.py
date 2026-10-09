@@ -17,7 +17,7 @@ from seedregress.comfy import (
     parse_queue_item,
     queue_counts,
 )
-from seedregress.errors import ComfyError, SeedRegressError
+from seedregress.errors import AmbiguousSubmission, ComfyError, SeedRegressError, TerminalPromptFailure
 from seedregress.fingerprint import build_fingerprint, fingerprint_changes
 from seedregress.metrics import abs_diff, compute_lpips, heatmap, lpips_available, phash_distance, ssim
 from seedregress.ownership import Ownership
@@ -349,9 +349,13 @@ def execute(
 
     outcome.queue_check = "idle (0 running, 0 pending)"
     outcome.mode = "completed"
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     run_dir = data_dir / "runs" / _slug(suite.name) / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    suffix = 1
+    while run_dir.exists():
+        suffix += 1
+        run_dir = data_dir / "runs" / _slug(suite.name) / f"{run_id}-{suffix}"
+    run_dir.mkdir(parents=True)
     results: list[CaseOutcome] = []
     for case in suite.cases:
         rendered = _render_case(
@@ -444,7 +448,9 @@ def _render_case(
         current.save(after_path)
         ownership.forget([prompt_id])
     except (ComfyError, SeedRegressError, OSError, ValueError) as exc:
-        unresolved = prompt_id is not None and waiting_for_completion
+        unresolved = isinstance(exc, AmbiguousSubmission) or (
+            prompt_id is not None and waiting_for_completion and not isinstance(exc, TerminalPromptFailure)
+        )
         reason = str(exc)
         if unresolved:
             reason += " The submitted job may still be queued or running; no cancellation was attempted."
