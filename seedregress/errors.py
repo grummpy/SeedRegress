@@ -19,3 +19,11 @@ class QueueBusy(SeedRegressError):
 
 class ComfyError(SeedRegressError):
     """ComfyUI returned an error or could not be reached."""
+
+
+class AmbiguousSubmission(ComfyError):
+    """A prompt request may have reached ComfyUI, but no prompt id came back."""
+
+
+class TerminalPromptFailure(ComfyError):
+    """ComfyUI recorded this prompt as terminally failed."""

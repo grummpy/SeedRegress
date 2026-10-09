@@ -16,6 +16,9 @@ dev = ["pytest==9.1.1", "ruff==0.16.10"]
 [project.scripts]
 seedregress = "seedregress.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["seedregress*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

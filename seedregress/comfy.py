@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlencode, urlparse
 
-from seedregress.errors import ComfyError, GpuConfirmationRequired
+from seedregress.errors import AmbiguousSubmission, ComfyError, GpuConfirmationRequired, TerminalPromptFailure
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -94,7 +94,16 @@ class ComfyClient:
                 "seedregress_case": case_id,
             },
         }
-        payload = self._request("POST", "/prompt", body)
+        try:
+            payload = self._request("POST", "/prompt", body)
+        except ComfyError as exc:
+            if not str(exc).startswith("Could not reach ComfyUI"):
+                raise
+            # A transport failure gives us no way to know whether ComfyUI accepted
+            # the request. Do not let callers submit another prompt blindly.
+            raise AmbiguousSubmission(
+                "Could not confirm whether ComfyUI accepted the prompt; no prompt id was returned."
+            ) from exc
         if not isinstance(payload, dict) or "prompt_id" not in payload:
             message = payload.get("error") if isinstance(payload, dict) else payload
             raise ComfyError(f"ComfyUI rejected the prompt: {message}")
@@ -135,7 +144,7 @@ class ComfyClient:
                     return image
                 error = error_from_history(entry)
                 if error:
-                    raise ComfyError(error)
+                    raise TerminalPromptFailure(error)
                 if time.monotonic() >= deadline:
                     raise ComfyError(
                         f"Timed out after {timeout:.0f}s waiting for ComfyUI prompt {prompt_id}"

@@ -9,7 +9,7 @@ import pytest
 
 from seedregress.comfy import ComfyClient, normalize_base, read_frame, send_frame
 from seedregress.config import load_config
-from seedregress.errors import ComfyError, GpuConfirmationRequired
+from seedregress.errors import AmbiguousSubmission, ComfyError, GpuConfirmationRequired, TerminalPromptFailure
 from seedregress.runner import baseline_dir, cancel_mine, execute, exit_code, plan_suite
 from seedregress.suite import LoraSpec, load_suite
 from seedregress.workflow import apply_case
@@ -273,6 +273,59 @@ def test_unresolved_submission_stops_later_prompts_and_a_retry_can_continue(monk
         assert {item.verdict for item in retried.cases} == {"baseline"}
     finally:
         mock.stop()
+
+
+def test_ambiguous_pre_id_submission_stops_later_prompts(monkeypatch, suite, tmp_path):
+    mock = MockComfy()
+    host = mock.start()
+
+    def ambiguous_submit(self, graph, *, run_id, case_id):
+        raise AmbiguousSubmission("response lost before prompt id")
+
+    monkeypatch.setattr(ComfyClient, "submit", ambiguous_submit)
+    try:
+        outcome = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+    finally:
+        mock.stop()
+    assert outcome.prompts_submitted == 0
+    assert outcome.cases[0].submission_unresolved is True
+    assert [item.case_id for item in outcome.cases] == [case.id for case in suite.cases]
+    assert all(item.verdict == "error" for item in outcome.cases)
+    assert mock.prompt_posts() == []
+
+
+def test_terminal_prompt_failure_does_not_stop_independent_cases(monkeypatch, suite, tmp_path):
+    mock = MockComfy()
+    host = mock.start()
+    original_wait = ComfyClient.wait_for_image
+    calls = 0
+
+    def terminal_once(self, prompt_id, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TerminalPromptFailure("validation failed")
+        return original_wait(self, prompt_id, timeout)
+
+    monkeypatch.setattr(ComfyClient, "wait_for_image", terminal_once)
+    try:
+        outcome = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+    finally:
+        mock.stop()
+    assert outcome.prompts_submitted == len(suite.cases)
+    assert outcome.cases[0].submission_unresolved is False
+    assert [item.verdict for item in outcome.cases] == ["error", "baseline", "baseline"]
+
+
+def test_reports_created_in_same_second_do_not_share_a_directory(monkeypatch, suite, tmp_path):
+    mock = MockComfy()
+    host = mock.start()
+    try:
+        first = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+        second = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+    finally:
+        mock.stop()
+    assert Path(first.report_path).parents[1] != Path(second.report_path).parents[1]
 
 
 def test_same_name_suites_do_not_share_baselines_and_legacy_is_not_adopted(suite, tmp_path):
