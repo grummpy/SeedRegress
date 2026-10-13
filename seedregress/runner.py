@@ -394,11 +394,13 @@ def execute(
             )
             break
     # A receipt can fail after a server accepted a prompt.  Keep the durable
-    # receipt count separate from the number of prompt ids observed in this run
-    # so the UI/report never implies that a missing local receipt means no GPU
-    # work exists.
+    # receipt count separate from the number of submissions which may exist,
+    # including an interrupted response with no known id, so the UI/report
+    # never implies that a missing local receipt means no GPU work exists.
     outcome.prompts_submitted = _count_submitted(run_dir)
-    outcome.possible_submissions = sum(1 for item in results if item.prompt_id is not None)
+    outcome.possible_submissions = sum(
+        1 for item in results if item.prompt_id is not None or item.submission_unresolved
+    )
     outcome.cases = results
     report = write_report(run_dir, suite.name, results, host=host, comfyui_version=version)
     outcome.report_path = str(report)

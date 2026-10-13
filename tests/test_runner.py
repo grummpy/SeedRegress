@@ -317,7 +317,7 @@ def test_accepted_response_read_failure_stops_later_prompts(monkeypatch, suite, 
         mock.stop()
     assert len(mock.prompt_posts()) == 1
     assert outcome.prompts_submitted == 0
-    assert outcome.possible_submissions == 0
+    assert outcome.possible_submissions == 1
     assert outcome.cases[0].submission_unresolved is True
     assert all(item.verdict == "error" for item in outcome.cases)
 
