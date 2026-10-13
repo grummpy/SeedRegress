@@ -97,17 +97,29 @@ class ComfyClient:
         try:
             payload = self._request("POST", "/prompt", body)
         except ComfyError as exc:
-            if not str(exc).startswith("Could not reach ComfyUI"):
+            # An HTTP error is an explicit response from ComfyUI.  A transport
+            # failure, an incomplete body, or a malformed 2xx body can all
+            # happen after the server has accepted the prompt, so none of them
+            # may unlock another POST.
+            if str(exc).startswith("ComfyUI POST /prompt failed"):
                 raise
-            # A transport failure gives us no way to know whether ComfyUI accepted
-            # the request. Do not let callers submit another prompt blindly.
             raise AmbiguousSubmission(
                 "Could not confirm whether ComfyUI accepted the prompt; no prompt id was returned."
             ) from exc
-        if not isinstance(payload, dict) or "prompt_id" not in payload:
-            message = payload.get("error") if isinstance(payload, dict) else payload
-            raise ComfyError(f"ComfyUI rejected the prompt: {message}")
-        return str(payload["prompt_id"])
+        except OSError as exc:
+            raise AmbiguousSubmission(
+                "Could not confirm whether ComfyUI accepted the prompt; the response ended unexpectedly."
+            ) from exc
+        if isinstance(payload, dict) and payload.get("error"):
+            raise ComfyError(f"ComfyUI rejected the prompt: {payload['error']}")
+        prompt_id = payload.get("prompt_id") if isinstance(payload, dict) else None
+        if not isinstance(prompt_id, str) or not prompt_id.strip():
+            possible_id = prompt_id if isinstance(prompt_id, str) else None
+            raise AmbiguousSubmission(
+                "ComfyUI returned a successful but unusable prompt receipt; no later prompt was submitted.",
+                prompt_id=possible_id,
+            )
+        return prompt_id
 
     def history(self, prompt_id: str) -> dict:
         payload = self._request("GET", f"/history/{prompt_id}")
