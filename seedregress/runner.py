@@ -80,6 +80,8 @@ class CaseOutcome:
     changes: list[str] = field(default_factory=list)
     baseline_updated: bool = False
     submission_unresolved: bool = False
+    prompt_id: str | None = None
+    receipt_durable: bool | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -99,6 +101,8 @@ class CaseOutcome:
             "changes": self.changes,
             "baseline_updated": self.baseline_updated,
             "submission_unresolved": self.submission_unresolved,
+            "prompt_id": self.prompt_id,
+            "receipt_durable": self.receipt_durable,
         }
 
 
@@ -112,6 +116,7 @@ class Outcome:
     estimated_seconds: float
     jobs: list[PlannedJob]
     prompts_submitted: int = 0
+    possible_submissions: int = 0
     message: str | None = None
     cases: list[CaseOutcome] = field(default_factory=list)
     report_path: str | None = None
@@ -144,6 +149,7 @@ class Outcome:
             ),
             "jobs": [job.to_dict() for job in self.jobs],
             "prompts_submitted": self.prompts_submitted,
+            "possible_submissions": self.possible_submissions,
             "message": self.message,
             "cases": [
                 {
@@ -387,7 +393,12 @@ def execute(
                 "No queue cancellation was attempted."
             )
             break
+    # A receipt can fail after a server accepted a prompt.  Keep the durable
+    # receipt count separate from the number of prompt ids observed in this run
+    # so the UI/report never implies that a missing local receipt means no GPU
+    # work exists.
     outcome.prompts_submitted = _count_submitted(run_dir)
+    outcome.possible_submissions = sum(1 for item in results if item.prompt_id is not None)
     outcome.cases = results
     report = write_report(run_dir, suite.name, results, host=host, comfyui_version=version)
     outcome.report_path = str(report)
@@ -430,16 +441,21 @@ def _render_case(
     )
     prompt_id: str | None = None
     waiting_for_completion = False
+    receipt_durable: bool | None = None
     try:
         graph = apply_case(suite.workflow, case, suite.bindings)
         (case_dir / "workflow.json").write_text(json.dumps(graph, indent=2) + "\n", encoding="utf-8")
         prompt_id = client.submit(graph, run_id=run_id, case_id=case.id)
+        # From this point on the server may be working.  Mark the uncertainty
+        # boundary before writing either local receipt, so a disk failure cannot
+        # permit a later case to submit another prompt.
+        waiting_for_completion = True
         (case_dir / "prompt_id.txt").write_text(prompt_id + "\n", encoding="utf-8")
         ownership.remember(
             prompt_id,
             {"run_id": run_id, "case_id": case.id, "host": client.base},
         )
-        waiting_for_completion = True
+        receipt_durable = True
         image_info = client.wait_for_image(prompt_id, case_timeout)
         waiting_for_completion = False
         raw = client.view(image_info["filename"], image_info["subfolder"], image_info["type"])
@@ -448,6 +464,8 @@ def _render_case(
         current.save(after_path)
         ownership.forget([prompt_id])
     except (ComfyError, SeedRegressError, OSError, ValueError) as exc:
+        ambiguous_id = exc.prompt_id if isinstance(exc, AmbiguousSubmission) else None
+        known_prompt_id = prompt_id or ambiguous_id
         unresolved = isinstance(exc, AmbiguousSubmission) or (
             prompt_id is not None and waiting_for_completion and not isinstance(exc, TerminalPromptFailure)
         )
@@ -460,6 +478,8 @@ def _render_case(
             error=reason,
             reasons=[reason],
             submission_unresolved=unresolved,
+            prompt_id=known_prompt_id,
+            receipt_durable=receipt_durable,
         )
 
     fingerprint = build_fingerprint(
@@ -496,6 +516,8 @@ def _render_case(
             before_path=str(baseline_png),
             fingerprint=fingerprint,
             changes=["Baseline created."],
+            prompt_id=prompt_id,
+            receipt_durable=receipt_durable,
         )
 
     before = Image.open(baseline_png).convert("RGB")
@@ -539,6 +561,8 @@ def _render_case(
         fingerprint=fingerprint,
         changes=fingerprint_changes(previous, fingerprint),
         baseline_updated=update_baseline,
+        prompt_id=prompt_id,
+        receipt_durable=receipt_durable,
     )
 
 

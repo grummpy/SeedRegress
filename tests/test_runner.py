@@ -294,6 +294,78 @@ def test_ambiguous_pre_id_submission_stops_later_prompts(monkeypatch, suite, tmp
     assert mock.prompt_posts() == []
 
 
+def test_accepted_response_read_failure_stops_later_prompts(monkeypatch, suite, tmp_path):
+    """A dropped 2xx response is not evidence that ComfyUI rejected the prompt."""
+    mock = MockComfy()
+    host = mock.start()
+    original_request = ComfyClient._request
+    calls = 0
+
+    def accepted_then_lost(self, method, path, body=None, timeout=None):
+        nonlocal calls
+        if method == "POST" and path == "/prompt":
+            calls += 1
+            if calls == 1:
+                original_request(self, method, path, body, timeout)
+                raise OSError("connection closed while reading response")
+        return original_request(self, method, path, body, timeout)
+
+    monkeypatch.setattr(ComfyClient, "_request", accepted_then_lost)
+    try:
+        outcome = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+    finally:
+        mock.stop()
+    assert len(mock.prompt_posts()) == 1
+    assert outcome.prompts_submitted == 0
+    assert outcome.possible_submissions == 0
+    assert outcome.cases[0].submission_unresolved is True
+    assert all(item.verdict == "error" for item in outcome.cases)
+
+
+@pytest.mark.parametrize("payload", [{}, [], {"prompt_id": ""}, {"prompt_id": 7}])
+def test_unusable_2xx_prompt_receipt_stops_later_prompts(monkeypatch, suite, tmp_path, payload):
+    mock = MockComfy()
+    host = mock.start()
+    original_request = ComfyClient._request
+
+    def unusable_receipt(self, method, path, body=None, timeout=None):
+        if method == "POST" and path == "/prompt":
+            return payload
+        return original_request(self, method, path, body, timeout)
+
+    monkeypatch.setattr(ComfyClient, "_request", unusable_receipt)
+    try:
+        outcome = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+    finally:
+        mock.stop()
+    assert mock.prompt_posts() == []
+    assert outcome.cases[0].submission_unresolved is True
+    assert all(item.verdict == "error" for item in outcome.cases)
+
+
+def test_receipt_write_failure_keeps_known_id_and_stops_later_prompts(monkeypatch, suite, tmp_path):
+    mock = MockComfy()
+    host = mock.start()
+    original_write = Path.write_text
+
+    def fail_prompt_receipt(self, data, *args, **kwargs):
+        if self.name == "prompt_id.txt":
+            raise OSError("simulated full receipt volume")
+        return original_write(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_prompt_receipt)
+    try:
+        outcome = execute(suite, confirm_gpu=True, data_dir=tmp_path, host=host, poll_interval=0.01, case_timeout=5)
+    finally:
+        mock.stop()
+    assert len(mock.prompt_posts()) == 1
+    assert outcome.prompts_submitted == 0
+    assert outcome.possible_submissions == 1
+    assert outcome.cases[0].prompt_id == "prompt-1"
+    assert outcome.cases[0].receipt_durable is None
+    assert outcome.cases[0].submission_unresolved is True
+
+
 def test_terminal_prompt_failure_does_not_stop_independent_cases(monkeypatch, suite, tmp_path):
     mock = MockComfy()
     host = mock.start()

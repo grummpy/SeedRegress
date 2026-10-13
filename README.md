@@ -36,6 +36,8 @@ A confirmed run:
 
 **Cancel all my jobs** calls `POST /interrupt` only when the running job belongs to this install, then `POST /queue` with `delete` set to this install's pending prompt ids. It never sends `clear`, so other people's jobs stay queued.
 
+If a prompt response is interrupted, malformed, or cannot be recorded locally after ComfyUI returns an id, SeedRegress treats that submission as unresolved and stops the rest of the suite. The run outcome distinguishes durable local receipts from prompt ids that might exist remotely; it does not submit a replacement prompt or cancel uncertain work automatically.
+
 ## Scores
 
 | Metric | Role |
